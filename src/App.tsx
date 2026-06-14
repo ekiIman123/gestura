@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useGesture } from './hooks/useGesture'
 import { generateResponse } from './lib/groq'
 import { speak } from './lib/tts'
-import { GESTURE_EMOJI, GESTURE_LABEL, GESTURE_PROMPTS } from './lib/gestures'
+import { GESTURE_EMOJI, GESTURE_LABEL, GESTURE_PROMPTS, HIDDEN_GESTURE_EMOJI } from './lib/gestures'
 
 type Status = 'idle' | 'thinking' | 'speaking'
 
 const GESTURES = Object.keys(GESTURE_EMOJI)
+const ALL_EMOJI = { ...GESTURE_EMOJI, ...HIDDEN_GESTURE_EMOJI }
 
 export default function App() {
   const [status, setStatus] = useState<Status>('idle')
@@ -41,6 +42,12 @@ export default function App() {
 
   const handleGesture = useCallback((gesture: string) => {
     if (busyRef.current) return
+
+    // Hidden: 🤙 (ILoveYou / shaka) = "Hidup Jokowi!"
+    if (gesture === 'ILoveYou') {
+      triggerResponse('ILoveYou', 'Hidup Jokowi!')
+      return
+    }
 
     // Track sequence for hidden easter egg
     const now = Date.now()
@@ -153,7 +160,7 @@ export default function App() {
               transition={{ duration: 0.7, repeat: Infinity }}
               className="text-8xl drop-shadow-2xl"
             >
-              {GESTURE_EMOJI[currentGesture]}
+              {ALL_EMOJI[currentGesture]}
             </motion.span>
 
             {/* Hold progress ring */}
@@ -191,7 +198,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-5"
           >
-            <span className="text-7xl drop-shadow-2xl">{GESTURE_EMOJI[activeGesture]}</span>
+            <span className="text-7xl drop-shadow-2xl">{ALL_EMOJI[activeGesture]}</span>
             <div className="flex items-end gap-1">
               {[0, 1, 2, 3, 4].map(i => (
                 <motion.div
@@ -219,7 +226,7 @@ export default function App() {
           >
             <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/75 shadow-2xl shadow-violet-900/20 backdrop-blur-xl">
               <div className="flex items-start gap-3 p-5">
-                <span className="shrink-0 text-xl">{GESTURE_EMOJI[activeGesture]}</span>
+                <span className="shrink-0 text-xl">{ALL_EMOJI[activeGesture]}</span>
                 <p className="text-sm leading-relaxed text-white/90">{response}</p>
               </div>
 

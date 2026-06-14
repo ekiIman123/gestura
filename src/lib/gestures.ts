@@ -5,7 +5,6 @@ export const GESTURE_EMOJI: Record<string, string> = {
   Closed_Fist:  '✊',
   Victory:      '✌️',
   Pointing_Up:  '☝️',
-  ILoveYou:     '🤟',
 }
 
 export const GESTURE_LABEL: Record<string, string> = {
@@ -15,7 +14,11 @@ export const GESTURE_LABEL: Record<string, string> = {
   Closed_Fist:  'Fist',
   Victory:      'Victory',
   Pointing_Up:  'Pointing',
-  ILoveYou:     'I Love You',
+}
+
+// Hidden — not shown in the UI
+export const HIDDEN_GESTURE_EMOJI: Record<string, string> = {
+  ILoveYou: '🤙',
 }
 
 export const GESTURE_PROMPTS: Record<string, string> = {
