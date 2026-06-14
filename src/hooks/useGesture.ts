@@ -87,7 +87,12 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
       const results = rec.recognizeForVideo(video, now)
       drawOverlay(canvas, video, results)
 
-      const name = results.gestures?.[0]?.[0]?.categoryName ?? 'None'
+      const mediapipeName = results.gestures?.[0]?.[0]?.categoryName ?? 'None'
+      const landmarks = results.landmarks?.[0]
+      // Custom shaka (🤙) detection — overrides MediaPipe classification
+      const name = (mediapipeName !== 'None' && landmarks && detectShaka(landmarks))
+        ? 'Shaka'
+        : mediapipeName
 
       if (!enabledRef.current || name === 'None') {
         if (name === 'None') {
@@ -131,6 +136,29 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
   }, [])
 
   return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error }
+}
+
+type Lm = { x: number; y: number; z: number }
+
+function dist2d(a: Lm, b: Lm): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+}
+
+// Returns true for 🤙 shaka: thumb + pinky extended, index/middle/ring curled.
+// MediaPipe landmarks: 0=wrist, 4=thumb tip, 5=index MCP, 8=index tip,
+// 9=middle MCP, 12=middle tip, 13=ring MCP, 16=ring tip, 17=pinky MCP, 20=pinky tip
+function detectShaka(lm: Lm[]): boolean {
+  if (lm.length < 21) return false
+  const palm = dist2d(lm[0], lm[9])   // wrist → middle MCP as scale reference
+  if (palm < 0.05) return false        // hand too small / not detected properly
+
+  const thumbOut  = dist2d(lm[4],  lm[5])  > palm * 0.85  // thumb tip far from index MCP
+  const indexIn   = dist2d(lm[8],  lm[5])  < palm * 0.65  // index tip near its own MCP
+  const middleIn  = dist2d(lm[12], lm[9])  < palm * 0.65
+  const ringIn    = dist2d(lm[16], lm[13]) < palm * 0.65
+  const pinkyOut  = dist2d(lm[20], lm[17]) > palm * 0.55  // pinky tip far from its MCP
+
+  return thumbOut && indexIn && middleIn && ringIn && pinkyOut
 }
 
 function drawOverlay(

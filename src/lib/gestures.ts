@@ -5,6 +5,7 @@ export const GESTURE_EMOJI: Record<string, string> = {
   Closed_Fist:  '✊',
   Victory:      '✌️',
   Pointing_Up:  '☝️',
+  ILoveYou:     '🤟',
 }
 
 export const GESTURE_LABEL: Record<string, string> = {
@@ -14,11 +15,12 @@ export const GESTURE_LABEL: Record<string, string> = {
   Closed_Fist:  'Fist',
   Victory:      'Victory',
   Pointing_Up:  'Pointing',
+  ILoveYou:     'I Love You',
 }
 
 // Hidden — not shown in the UI
 export const HIDDEN_GESTURE_EMOJI: Record<string, string> = {
-  ILoveYou: '🤙',
+  Shaka: '🤙',
 }
 
 export const GESTURE_PROMPTS: Record<string, string> = {
@@ -36,6 +38,10 @@ export const GESTURE_PROMPTS: Record<string, string> = {
     'Berikan satu tips atau life hack produktivitas yang praktis dan berguna dalam bahasa Indonesia informal.',
   ILoveYou:
     'Ungkapkan rasa kasih sayang dan apresiasi yang hangat dan tulus dalam bahasa Indonesia informal.',
+}
+
+export const GESTURE_PROMPTS_HIDDEN: Record<string, string> = {
+  Shaka: 'Hidup Jokowi!',
 }
 
 export const HAND_CONNECTIONS: [number, number][] = [

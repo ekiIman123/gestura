@@ -43,9 +43,9 @@ export default function App() {
   const handleGesture = useCallback((gesture: string) => {
     if (busyRef.current) return
 
-    // Hidden: 🤙 (ILoveYou / shaka) = "Hidup Jokowi!"
-    if (gesture === 'ILoveYou') {
-      triggerResponse('ILoveYou', 'Hidup Jokowi!')
+    // Hidden: 🤙 (Shaka) = "Hidup Jokowi!"
+    if (gesture === 'Shaka') {
+      triggerResponse('Shaka', 'Hidup Jokowi!')
       return
     }
 
