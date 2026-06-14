@@ -43,9 +43,24 @@ export default function App() {
   const handleGesture = useCallback((gesture: string) => {
     if (busyRef.current) return
 
-    // Hidden: 🤙 (Shaka) = "Hidup Jokowi!"
+    // Hidden: 🤙 (Shaka) = play the actual "Hidup Jokowi!" meme audio
     if (gesture === 'Shaka') {
-      triggerResponse('Shaka', 'Hidup Jokowi!')
+      busyRef.current = true
+      setActiveGesture('Shaka')
+      setStatus('speaking')
+      setResponse('Hidup Jokowi! 🇮🇩')
+      const audio = new Audio('/hidup-jokowi.mp3')
+      audio.onended = () => {
+        setStatus('idle')
+        busyRef.current = false
+        setTimeout(() => { setResponse(''); setActiveGesture('') }, 3000)
+      }
+      audio.onerror = () => {
+        setStatus('idle')
+        busyRef.current = false
+        setTimeout(() => { setResponse(''); setActiveGesture('') }, 3000)
+      }
+      audio.play()
       return
     }
 
