@@ -22,6 +22,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
   const holdStartRef = useRef(0)
   const firedRef = useRef(false)
   const enabledRef = useRef(enabled)
+  const onGestureRef = useRef(onGesture)
 
   const [currentGesture, setCurrentGesture] = useState('')
   const [holdProgress, setHoldProgress] = useState(0)
@@ -30,6 +31,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
   const [error, setError] = useState('')
 
   useEffect(() => { enabledRef.current = enabled }, [enabled])
+  useEffect(() => { onGestureRef.current = onGesture }, [onGesture])
 
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -41,7 +43,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
         const vision = await FilesetResolver.forVisionTasks(WASM_URL)
         if (!mounted) return
         recognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+          baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
           runningMode: 'VIDEO',
           numHands: 1,
           minHandDetectionConfidence: 0.65,
@@ -111,7 +113,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
         if (elapsed >= HOLD_MS) {
           firedRef.current = true
           setHoldProgress(1)
-          onGesture(name)
+          onGestureRef.current(name)
         }
       }
 
@@ -125,7 +127,8 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
       stream?.getTracks().forEach(t => t.stop())
       recognizerRef.current?.close()
     }
-  }, [onGesture])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error }
 }

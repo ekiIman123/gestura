@@ -14,16 +14,16 @@ export default function App() {
   const [activeGesture, setActiveGesture] = useState('')
   const [response, setResponse] = useState('')
   const busyRef = useRef(false)
+  const sequenceRef = useRef<{ gesture: string; time: number }[]>([])
 
-  const handleGesture = useCallback(async (gesture: string) => {
-    if (busyRef.current) return
+  const triggerResponse = useCallback(async (gesture: string, overrideText?: string) => {
     busyRef.current = true
     setActiveGesture(gesture)
-    setStatus('thinking')
+    setStatus(overrideText ? 'speaking' : 'thinking')
     setResponse('')
 
     try {
-      const text = await generateResponse(GESTURE_PROMPTS[gesture])
+      const text = overrideText ?? await generateResponse(GESTURE_PROMPTS[gesture])
       setResponse(text)
       setStatus('speaking')
       await speak(text)
@@ -38,6 +38,30 @@ export default function App() {
       setTimeout(() => { setResponse(''); setActiveGesture('') }, 5000)
     }
   }, [])
+
+  const handleGesture = useCallback((gesture: string) => {
+    if (busyRef.current) return
+
+    // Track sequence for hidden easter egg
+    const now = Date.now()
+    const seq = sequenceRef.current
+    seq.push({ gesture, time: now })
+    if (seq.length > 2) seq.shift()
+
+    // Secret: 👍 then 👎 within 2.5s = "Hidup Jokowi!"
+    if (
+      seq.length === 2 &&
+      seq[0].gesture === 'Thumb_Up' &&
+      seq[1].gesture === 'Thumb_Down' &&
+      now - seq[0].time < 2500
+    ) {
+      sequenceRef.current = []
+      triggerResponse('🇮🇩', 'Hidup Jokowi!')
+      return
+    }
+
+    triggerResponse(gesture)
+  }, [triggerResponse])
 
   const { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error } =
     useGesture({ onGesture: handleGesture, enabled: status === 'idle' })
