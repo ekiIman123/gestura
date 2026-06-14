@@ -237,7 +237,8 @@ export default function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-            className="absolute inset-x-4 bottom-24 mx-auto max-w-md"
+            className="absolute inset-x-4 mx-auto max-w-md"
+            style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/75 shadow-2xl shadow-violet-900/20 backdrop-blur-xl">
               <div className="flex items-start gap-3 p-5">
@@ -277,8 +278,11 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bottom gesture guide */}
-      <div className="absolute inset-x-0 bottom-6 flex justify-center">
-        <div className="flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-6 py-3 backdrop-blur-md">
+      <div
+        className="absolute inset-x-0 z-10 flex justify-center px-4"
+        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-4 py-2.5 backdrop-blur-md sm:gap-3 sm:px-6 sm:py-3">
           {GESTURES.map(key => (
             <motion.div
               key={key}
@@ -289,7 +293,7 @@ export default function App() {
                   : { scale: 1, opacity: 0.35, filter: 'grayscale(0.8)' }
               }
               transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-              className="text-xl cursor-default"
+              className="cursor-default text-lg sm:text-xl"
             >
               {GESTURE_EMOJI[key]}
             </motion.div>
