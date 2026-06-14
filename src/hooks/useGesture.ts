@@ -145,20 +145,23 @@ function dist2d(a: Lm, b: Lm): number {
 }
 
 // Returns true for 🤙 shaka: thumb + pinky extended, index/middle/ring curled.
-// MediaPipe landmarks: 0=wrist, 4=thumb tip, 5=index MCP, 8=index tip,
-// 9=middle MCP, 12=middle tip, 13=ring MCP, 16=ring tip, 17=pinky MCP, 20=pinky tip
+// Logic: a finger is "extended" when its tip is farther from the wrist than its
+// PIP joint; "curled" when the tip is closer to the wrist than the PIP joint.
+// Landmark indices:
+//   0=wrist  2=thumb IP  3=thumb DIP  4=thumb tip
+//   6=index PIP  8=index tip   10=mid PIP  12=mid tip
+//   14=ring PIP  16=ring tip   18=pinky PIP  20=pinky tip
 function detectShaka(lm: Lm[]): boolean {
   if (lm.length < 21) return false
-  const palm = dist2d(lm[0], lm[9])   // wrist → middle MCP as scale reference
-  if (palm < 0.05) return false        // hand too small / not detected properly
+  const w = lm[0] // wrist
 
-  const thumbOut  = dist2d(lm[4],  lm[5])  > palm * 0.85  // thumb tip far from index MCP
-  const indexIn   = dist2d(lm[8],  lm[5])  < palm * 0.65  // index tip near its own MCP
-  const middleIn  = dist2d(lm[12], lm[9])  < palm * 0.65
-  const ringIn    = dist2d(lm[16], lm[13]) < palm * 0.65
-  const pinkyOut  = dist2d(lm[20], lm[17]) > palm * 0.55  // pinky tip far from its MCP
+  const thumbExt   = dist2d(lm[4], lm[2])  > dist2d(lm[3], lm[2])   // thumb tip past its IP
+  const indexCurl  = dist2d(lm[8],  w) < dist2d(lm[6],  w)           // index tip closer to wrist than PIP
+  const middleCurl = dist2d(lm[12], w) < dist2d(lm[10], w)
+  const ringCurl   = dist2d(lm[16], w) < dist2d(lm[14], w)
+  const pinkyExt   = dist2d(lm[20], w) > dist2d(lm[18], w)           // pinky tip farther than PIP
 
-  return thumbOut && indexIn && middleIn && ringIn && pinkyOut
+  return thumbExt && indexCurl && middleCurl && ringCurl && pinkyExt
 }
 
 function drawOverlay(
