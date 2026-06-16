@@ -124,7 +124,7 @@ export default function App() {
     })
   }, [])
 
-  const { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef } =
+  const { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef, handCentersRef } =
     useGesture({ onGesture: handleGesture, onPinch: handlePinch, enabled: true })
 
   const isOpenPalm = currentGesture === 'Open_Palm'
@@ -144,6 +144,7 @@ export default function App() {
         trigger={elementTrigger}
         continuous={isOpenPalm}
         handCenterRef={handCenterRef}
+        handCentersRef={handCentersRef}
       />
 
       {/* Lightning flash */}

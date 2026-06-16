@@ -27,8 +27,9 @@ export function useGesture({ onGesture, onPinch, enabled }: UseGestureOptions) {
   const onPinchRef = useRef(onPinch)
   const pinchFiredRef = useRef(false)
 
-  // handCenterRef is updated every frame — use ref (not state) to avoid 60fps re-renders
-  const handCenterRef = useRef<{ x: number; y: number } | null>(null)
+  // hand position refs — updated every frame, no re-renders
+  const handCenterRef  = useRef<{ x: number; y: number } | null>(null)
+  const handCentersRef = useRef<Array<{ x: number; y: number } | null>>([null, null])
 
   const [currentGesture, setCurrentGesture] = useState('')
   const [holdProgress, setHoldProgress] = useState(0)
@@ -52,7 +53,7 @@ export function useGesture({ onGesture, onPinch, enabled }: UseGestureOptions) {
         recognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
           runningMode: 'VIDEO',
-          numHands: 1,
+          numHands: 2,
           minHandDetectionConfidence: 0.65,
           minHandPresenceConfidence: 0.65,
           minTrackingConfidence: 0.5,
@@ -95,8 +96,13 @@ export function useGesture({ onGesture, onPinch, enabled }: UseGestureOptions) {
 
       const lm = results.landmarks?.[0]
 
-      // Always update hand center ref (no state = no re-render)
-      handCenterRef.current = lm ? getHandCenter(lm) : null
+      // Update all hand centers (no state = no re-render)
+      const allLm = results.landmarks ?? []
+      handCentersRef.current = [
+        allLm[0] ? getHandCenter(allLm[0]) : null,
+        allLm[1] ? getHandCenter(allLm[1]) : null,
+      ]
+      handCenterRef.current = handCentersRef.current[0]
 
       // Pinch detection — fires onPinch once per pinch gesture (with hold)
       const pinching = !!lm && detectPinch(lm)
@@ -188,7 +194,7 @@ export function useGesture({ onGesture, onPinch, enabled }: UseGestureOptions) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef }
+  return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef, handCentersRef }
 }
 
 type Lm = { x: number; y: number; z: number }
@@ -236,30 +242,31 @@ function drawOverlay(
   if (!ctx) return
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-  const landmarks = results.landmarks?.[0]
-  if (!landmarks) return
+  const allLandmarks = results.landmarks ?? []
+  if (!allLandmarks.length) return
 
-  ctx.strokeStyle = 'rgba(167, 139, 250, 0.85)'
-  ctx.lineWidth = 2.5
-  ctx.lineCap = 'round'
-  HAND_CONNECTIONS.forEach(([a, b]) => {
-    ctx.beginPath()
-    ctx.moveTo(landmarks[a].x * canvas.width, landmarks[a].y * canvas.height)
-    ctx.lineTo(landmarks[b].x * canvas.width, landmarks[b].y * canvas.height)
-    ctx.stroke()
-  })
-
-  landmarks.forEach((lm, i) => {
-    const x = lm.x * canvas.width
-    const y = lm.y * canvas.height
-    ctx.beginPath()
-    ctx.arc(x, y, i === 0 ? 7 : 4, 0, Math.PI * 2)
-    ctx.fillStyle = i === 0 ? 'rgba(139, 92, 246, 1)' : 'rgba(255,255,255,0.92)'
-    ctx.fill()
-    if (i === 0) {
-      ctx.strokeStyle = 'rgba(139, 92, 246, 0.4)'
-      ctx.lineWidth = 2
+  for (const landmarks of allLandmarks) {
+    ctx.strokeStyle = 'rgba(167, 139, 250, 0.85)'
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    HAND_CONNECTIONS.forEach(([a, b]) => {
+      ctx.beginPath()
+      ctx.moveTo(landmarks[a].x * canvas.width, landmarks[a].y * canvas.height)
+      ctx.lineTo(landmarks[b].x * canvas.width, landmarks[b].y * canvas.height)
       ctx.stroke()
-    }
-  })
+    })
+    landmarks.forEach((lm, i) => {
+      const x = lm.x * canvas.width
+      const y = lm.y * canvas.height
+      ctx.beginPath()
+      ctx.arc(x, y, i === 0 ? 7 : 4, 0, Math.PI * 2)
+      ctx.fillStyle = i === 0 ? 'rgba(139, 92, 246, 1)' : 'rgba(255,255,255,0.92)'
+      ctx.fill()
+      if (i === 0) {
+        ctx.strokeStyle = 'rgba(139, 92, 246, 0.4)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
+    })
+  }
 }
