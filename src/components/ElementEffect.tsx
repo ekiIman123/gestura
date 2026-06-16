@@ -18,6 +18,36 @@ interface Particle {
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]
 
+function makeContinuousParticle(el: ElementType, ox: number, oy: number): Particle {
+  const color = pick(ELEMENT_CONFIG[el].colors)
+  switch (el) {
+    case 'fire':
+      return { x: ox + rnd(-18, 18), y: oy + rnd(-8, 8), vx: rnd(-1.5, 1.5), vy: rnd(-5, -1.5), gy: -0.06, drag: 0.97, decay: rnd(0.022, 0.042), life: 1, maxLife: 1, size: rnd(2, 8), color, glow: false }
+    case 'water':
+      return { x: ox + rnd(-8, 8), y: oy, vx: rnd(-1.5, 1.5), vy: rnd(-2, 0.5), gy: 0.1, drag: 0.99, decay: rnd(0.015, 0.028), life: 1, maxLife: 1, size: rnd(2, 5), color, glow: false }
+    case 'air': {
+      const a = rnd(0, Math.PI * 2), s = rnd(3, 9)
+      return { x: ox, y: oy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, gy: 0, drag: 0.93, decay: rnd(0.04, 0.09), life: 1, maxLife: 1, size: rnd(1, 3), color, glow: false }
+    }
+    case 'earth':
+      return { x: ox + rnd(-12, 12), y: oy, vx: rnd(-2, 2), vy: rnd(-4, -1), gy: 0.28, drag: 0.98, decay: rnd(0.018, 0.03), life: 1, maxLife: 1, size: rnd(4, 10), color, glow: false }
+    case 'lightning': {
+      const a = rnd(0, Math.PI * 2), s = rnd(3, 10)
+      return { x: ox, y: oy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, gy: 0, drag: 0.94, decay: rnd(0.055, 0.12), life: 1, maxLife: 1, size: rnd(1, 2.5), color, glow: true }
+    }
+    case 'energy': {
+      const a = rnd(0, Math.PI * 2), s = rnd(2, 6)
+      return { x: ox, y: oy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, gy: 0, drag: 0.97, decay: rnd(0.02, 0.038), life: 1, maxLife: 1, size: rnd(2, 5), color, glow: true }
+    }
+    case 'spirit':
+      return { x: ox + rnd(-25, 25), y: oy + rnd(-8, 8), vx: rnd(-0.8, 0.8), vy: rnd(-2.5, -0.3), gy: -0.01, drag: 0.99, decay: rnd(0.008, 0.018), life: 1, maxLife: 1, size: rnd(2, 6), color, glow: true }
+  }
+}
+
+const CONTINUOUS_COUNT: Record<ElementType, number> = {
+  fire: 4, water: 3, air: 6, earth: 2, lightning: 3, energy: 4, spirit: 3,
+}
+
 function spawnBurst(el: ElementType, w: number, h: number): Particle[] {
   const cx = w / 2, cy = h / 2
   const colors = ELEMENT_CONFIG[el].colors
@@ -25,8 +55,7 @@ function spawnBurst(el: ElementType, w: number, h: number): Particle[] {
   if (el === 'lightning') {
     const out: Particle[] = []
     for (let b = 0; b < 5; b++) {
-      const a = rnd(0, Math.PI * 2)
-      const len = rnd(80, Math.min(w, h) * 0.42)
+      const a = rnd(0, Math.PI * 2), len = rnd(80, Math.min(w, h) * 0.42)
       const pts: [number, number][] = []
       let x = cx, y = cy
       for (let s = 0; s < 8; s++) {
@@ -82,15 +111,22 @@ function spawnBurst(el: ElementType, w: number, h: number): Particle[] {
 interface Props {
   element: ElementType | ''
   trigger: number
+  continuous: boolean
+  // ref to normalized hand center (x,y in [0,1]), updated every frame — no re-renders
+  handCenterRef: React.MutableRefObject<{ x: number; y: number } | null>
 }
 
-export function ElementEffect({ element, trigger }: Props) {
+export function ElementEffect({ element, trigger, continuous, handCenterRef }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particlesRef = useRef<Particle[]>([])
   const rafRef = useRef<number>(0)
   const elementRef = useRef(element)
-  useEffect(() => { elementRef.current = element }, [element])
+  const continuousRef = useRef(continuous)
 
+  useEffect(() => { elementRef.current = element }, [element])
+  useEffect(() => { continuousRef.current = continuous }, [continuous])
+
+  // Burst on trigger
   useEffect(() => {
     if (!trigger) return
     const el = elementRef.current
@@ -115,6 +151,24 @@ export function ElementEffect({ element, trigger }: Props) {
       const ctx = canvas!.getContext('2d')
       if (!ctx) { rafRef.current = requestAnimationFrame(frame); return }
       ctx.clearRect(0, 0, canvas!.width, canvas!.height)
+
+      // Continuous emission — read hand position from ref (zero re-renders)
+      const el = elementRef.current as ElementType | ''
+      if (continuousRef.current && el && handCenterRef.current) {
+        const hc = handCenterRef.current
+        // Mirror X because video is scaleX(-1) but this canvas is not
+        const ox = (1 - hc.x) * canvas!.width
+        const oy = hc.y * canvas!.height
+        const count = CONTINUOUS_COUNT[el as ElementType] ?? 4
+        for (let i = 0; i < count; i++) {
+          particlesRef.current.push(makeContinuousParticle(el as ElementType, ox, oy))
+        }
+      }
+
+      // Cap particle count to prevent memory growth
+      if (particlesRef.current.length > 600) {
+        particlesRef.current = particlesRef.current.slice(-500)
+      }
 
       particlesRef.current = particlesRef.current.filter(p => p.life > 0)
 
@@ -155,6 +209,7 @@ export function ElementEffect({ element, trigger }: Props) {
       cancelAnimationFrame(rafRef.current)
       window.removeEventListener('resize', resize)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />

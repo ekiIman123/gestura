@@ -10,10 +10,11 @@ const HOLD_MS = 900
 
 interface UseGestureOptions {
   onGesture: (gesture: string) => void
+  onPinch: () => void
   enabled: boolean
 }
 
-export function useGesture({ onGesture, enabled }: UseGestureOptions) {
+export function useGesture({ onGesture, onPinch, enabled }: UseGestureOptions) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const recognizerRef = useRef<GestureRecognizer | null>(null)
@@ -23,6 +24,11 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
   const firedRef = useRef(false)
   const enabledRef = useRef(enabled)
   const onGestureRef = useRef(onGesture)
+  const onPinchRef = useRef(onPinch)
+  const pinchFiredRef = useRef(false)
+
+  // handCenterRef is updated every frame — use ref (not state) to avoid 60fps re-renders
+  const handCenterRef = useRef<{ x: number; y: number } | null>(null)
 
   const [currentGesture, setCurrentGesture] = useState('')
   const [holdProgress, setHoldProgress] = useState(0)
@@ -32,6 +38,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
 
   useEffect(() => { enabledRef.current = enabled }, [enabled])
   useEffect(() => { onGestureRef.current = onGesture }, [onGesture])
+  useEffect(() => { onPinchRef.current = onPinch }, [onPinch])
 
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -63,7 +70,6 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
         try {
           await video.play()
         } catch {
-          // interrupted by cleanup — ignore
           return
         }
         if (!mounted) return
@@ -87,10 +93,45 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
       const results = rec.recognizeForVideo(video, now)
       drawOverlay(canvas, video, results)
 
+      const lm = results.landmarks?.[0]
+
+      // Always update hand center ref (no state = no re-render)
+      handCenterRef.current = lm ? getHandCenter(lm) : null
+
+      // Pinch detection — fires onPinch once per pinch gesture (with hold)
+      const pinching = !!lm && detectPinch(lm)
+      if (pinching) {
+        if (!pinchFiredRef.current) {
+          // Require a short hold before firing (reuse holdStart for pinch)
+          if (lastGestureRef.current !== '__pinch__') {
+            lastGestureRef.current = '__pinch__'
+            holdStartRef.current = now
+          } else if (now - holdStartRef.current >= 500) {
+            pinchFiredRef.current = true
+            onPinchRef.current()
+          }
+        }
+        // Hide gesture UI while pinching
+        if (currentGesture !== '') {
+          setCurrentGesture('')
+          setHoldProgress(0)
+          firedRef.current = false
+        }
+        rafRef.current = requestAnimationFrame(loop)
+        return
+      }
+
+      // Reset pinch state when not pinching
+      if (lastGestureRef.current === '__pinch__') {
+        lastGestureRef.current = ''
+        pinchFiredRef.current = false
+      } else {
+        pinchFiredRef.current = false
+      }
+
       const mediapipeName = results.gestures?.[0]?.[0]?.categoryName ?? 'None'
-      const landmarks = results.landmarks?.[0]
-      // Custom shaka (🤙) detection — overrides MediaPipe classification
-      const name = (mediapipeName !== 'None' && landmarks && detectShaka(landmarks))
+      // Custom shaka (🤙) detection
+      const name = (mediapipeName !== 'None' && lm && detectShaka(lm))
         ? 'Shaka'
         : mediapipeName
 
@@ -99,6 +140,18 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
           lastGestureRef.current = ''
           firedRef.current = false
           setCurrentGesture('')
+          setHoldProgress(0)
+        }
+        rafRef.current = requestAnimationFrame(loop)
+        return
+      }
+
+      // Open_Palm fires immediately (no hold needed — continuous mode)
+      if (name === 'Open_Palm') {
+        if (lastGestureRef.current !== 'Open_Palm') {
+          lastGestureRef.current = 'Open_Palm'
+          firedRef.current = false
+          setCurrentGesture('Open_Palm')
           setHoldProgress(0)
         }
         rafRef.current = requestAnimationFrame(loop)
@@ -135,7 +188,7 @@ export function useGesture({ onGesture, enabled }: UseGestureOptions) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error }
+  return { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef }
 }
 
 type Lm = { x: number; y: number; z: number }
@@ -144,23 +197,31 @@ function dist2d(a: Lm, b: Lm): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
 }
 
-// Returns true for 🤙 shaka: thumb + pinky extended, index/middle/ring curled.
-// Logic: a finger is "extended" when its tip is farther from the wrist than its
-// PIP joint; "curled" when the tip is closer to the wrist than the PIP joint.
-// Landmark indices:
-//   0=wrist  2=thumb IP  3=thumb DIP  4=thumb tip
-//   6=index PIP  8=index tip   10=mid PIP  12=mid tip
-//   14=ring PIP  16=ring tip   18=pinky PIP  20=pinky tip
+function getHandCenter(lm: Lm[]): { x: number; y: number } {
+  // Average of wrist + 4 MCP joints = palm center
+  const pts = [lm[0], lm[5], lm[9], lm[13], lm[17]]
+  return {
+    x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+    y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
+  }
+}
+
+// Pinch: thumb tip (4) close to index tip (8)
+function detectPinch(lm: Lm[]): boolean {
+  if (lm.length < 21) return false
+  const palm = dist2d(lm[0], lm[9])
+  return dist2d(lm[4], lm[8]) < palm * 0.38
+}
+
+// Shaka 🤙: thumb + pinky extended, index/middle/ring curled
 function detectShaka(lm: Lm[]): boolean {
   if (lm.length < 21) return false
-  const w = lm[0] // wrist
-
-  const thumbExt   = dist2d(lm[4], lm[2])  > dist2d(lm[3], lm[2])   // thumb tip past its IP
-  const indexCurl  = dist2d(lm[8],  w) < dist2d(lm[6],  w)           // index tip closer to wrist than PIP
+  const w = lm[0]
+  const thumbExt   = dist2d(lm[4], lm[2]) > dist2d(lm[3], lm[2])
+  const indexCurl  = dist2d(lm[8],  w) < dist2d(lm[6],  w)
   const middleCurl = dist2d(lm[12], w) < dist2d(lm[10], w)
   const ringCurl   = dist2d(lm[16], w) < dist2d(lm[14], w)
-  const pinkyExt   = dist2d(lm[20], w) > dist2d(lm[18], w)           // pinky tip farther than PIP
-
+  const pinkyExt   = dist2d(lm[20], w) > dist2d(lm[18], w)
   return thumbExt && indexCurl && middleCurl && ringCurl && pinkyExt
 }
 

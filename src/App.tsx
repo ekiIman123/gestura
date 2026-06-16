@@ -1,110 +1,57 @@
 import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGesture } from './hooks/useGesture'
-import { generateResponse } from './lib/groq'
-import { speak } from './lib/tts'
-import { GESTURE_EMOJI, GESTURE_LABEL, GESTURE_PROMPTS, HIDDEN_GESTURE_EMOJI } from './lib/gestures'
-import { GESTURE_ELEMENT, ELEMENT_CONFIG } from './lib/elements'
+import { GESTURE_EMOJI, GESTURE_LABEL } from './lib/gestures'
+import { ELEMENT_CONFIG, GESTURE_ELEMENT } from './lib/elements'
+import type { ElementType } from './lib/elements'
 import { ElementEffect } from './components/ElementEffect'
 
-type Status = 'idle' | 'thinking' | 'speaking'
-
 const GESTURES = Object.keys(GESTURE_EMOJI)
-const ALL_EMOJI = { ...GESTURE_EMOJI, ...HIDDEN_GESTURE_EMOJI }
+const ELEMENTS = Object.keys(ELEMENT_CONFIG) as ElementType[]
 
 export default function App() {
-  const [status, setStatus] = useState<Status>('idle')
-  const [activeGesture, setActiveGesture] = useState('')
-  const [response, setResponse] = useState('')
+  const [activeElement, setActiveElement] = useState<ElementType>('fire')
   const [elementTrigger, setElementTrigger] = useState(0)
   const [flash, setFlash] = useState(false)
-  const busyRef = useRef(false)
-  const sequenceRef = useRef<{ gesture: string; time: number }[]>([])
+  const [pinchLabel, setPinchLabel] = useState(false)
+  const cooldownRef = useRef(false)
 
-  const activeElement = GESTURE_ELEMENT[activeGesture] ?? null
-  const currentElementCfg = activeElement ? ELEMENT_CONFIG[activeElement] : null
-
-  const triggerResponse = useCallback(async (gesture: string, overrideText?: string) => {
-    busyRef.current = true
-    setActiveGesture(gesture)
-    setStatus(overrideText ? 'speaking' : 'thinking')
-    setResponse('')
-    setElementTrigger(t => t + 1)
-
-    // Flash screen for lightning
-    if (GESTURE_ELEMENT[gesture] === 'lightning') {
-      setFlash(true)
-      setTimeout(() => setFlash(false), 180)
-    }
-
-    try {
-      const text = overrideText ?? await generateResponse(GESTURE_PROMPTS[gesture])
-      setResponse(text)
-      setStatus('speaking')
-      await speak(text)
-    } catch {
-      const fallback = 'Maaf, ada gangguan koneksi.'
-      setResponse(fallback)
-      setStatus('speaking')
-      await speak(fallback)
-    } finally {
-      setStatus('idle')
-      busyRef.current = false
-      setTimeout(() => { setResponse(''); setActiveGesture('') }, 5000)
-    }
-  }, [])
+  const elementCfg = ELEMENT_CONFIG[activeElement]
 
   const handleGesture = useCallback((gesture: string) => {
-    if (busyRef.current) return
+    if (cooldownRef.current) return
 
-    // Hidden: 🤙 (Shaka) = play the actual "Hidup Jokowi!" meme audio
+    // Hidden: 🤙 (Shaka) = Hidup Jokowi! audio
     if (gesture === 'Shaka') {
-      busyRef.current = true
-      setActiveGesture('Shaka')
-      setStatus('speaking')
-      setResponse('Hidup Jokowi! 🇮🇩')
       const audio = new Audio('/hidup-jokowi.mp3')
-      audio.onended = () => {
-        setStatus('idle')
-        busyRef.current = false
-        setTimeout(() => { setResponse(''); setActiveGesture('') }, 3000)
-      }
-      audio.onerror = () => {
-        setStatus('idle')
-        busyRef.current = false
-        setTimeout(() => { setResponse(''); setActiveGesture('') }, 3000)
-      }
       audio.play()
       return
     }
 
-    // Track sequence for hidden easter egg
-    const now = Date.now()
-    const seq = sequenceRef.current
-    seq.push({ gesture, time: now })
-    if (seq.length > 2) seq.shift()
-
-    // Secret: 👍 then 👎 within 2.5s = "Hidup Jokowi!"
-    if (
-      seq.length === 2 &&
-      seq[0].gesture === 'Thumb_Up' &&
-      seq[1].gesture === 'Thumb_Down' &&
-      now - seq[0].time < 2500
-    ) {
-      sequenceRef.current = []
-      triggerResponse('🇮🇩', 'Hidup Jokowi!')
-      return
+    // Burst + flash for lightning
+    cooldownRef.current = true
+    setElementTrigger(t => t + 1)
+    if (activeElement === 'lightning') {
+      setFlash(true)
+      setTimeout(() => setFlash(false), 180)
     }
+    setTimeout(() => { cooldownRef.current = false }, 1800)
+  }, [activeElement])
 
-    triggerResponse(gesture)
-  }, [triggerResponse])
+  const handlePinch = useCallback(() => {
+    const idx = ELEMENTS.indexOf(activeElement)
+    const next = ELEMENTS[(idx + 1) % ELEMENTS.length]
+    setActiveElement(next)
+    setPinchLabel(true)
+    setTimeout(() => setPinchLabel(false), 1200)
+  }, [activeElement])
 
-  const { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error } =
-    useGesture({ onGesture: handleGesture, enabled: status === 'idle' })
+  const { videoRef, canvasRef, currentGesture, holdProgress, ready, loadingMsg, error, handCenterRef } =
+    useGesture({ onGesture: handleGesture, onPinch: handlePinch, enabled: true })
 
-  const isBusy = status !== 'idle'
-  const currentElement = GESTURE_ELEMENT[currentGesture] ?? null
-  const currentElemCfg = currentElement ? ELEMENT_CONFIG[currentElement] : null
+  const isOpenPalm = currentGesture === 'Open_Palm'
+  const isHolding = currentGesture && currentGesture !== 'Open_Palm'
+  const currentElemCfg = GESTURE_ELEMENT[currentGesture] ? ELEMENT_CONFIG[GESTURE_ELEMENT[currentGesture]] : elementCfg
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black select-none">
@@ -125,15 +72,20 @@ export default function App() {
         style={{ transform: 'scaleX(-1)' }}
       />
 
-      {/* Element particle effect */}
-      <ElementEffect element={activeElement ?? ''} trigger={elementTrigger} />
+      {/* Element particle effects */}
+      <ElementEffect
+        element={activeElement}
+        trigger={elementTrigger}
+        continuous={isOpenPalm}
+        handCenterRef={handCenterRef}
+      />
 
       {/* Lightning screen flash */}
       <AnimatePresence>
         {flash && (
           <motion.div
             key="flash"
-            initial={{ opacity: 0.7 }}
+            initial={{ opacity: 0.75 }}
             animate={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
             className="pointer-events-none absolute inset-0 z-20 bg-yellow-100"
@@ -174,7 +126,7 @@ export default function App() {
       )}
 
       {/* Top bar */}
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-5 pt-5">
+      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-5 pt-5">
         <div className="flex items-center gap-2">
           <motion.div
             animate={ready ? { opacity: [1, 0.3, 1] } : { opacity: 0.4 }}
@@ -188,12 +140,58 @@ export default function App() {
 
         <span className="text-xs font-bold tracking-[0.3em] text-white/50 uppercase">Gestura</span>
 
-        <div className="w-24" />
+        {/* Active element badge */}
+        <motion.div
+          key={activeElement}
+          initial={{ scale: 0.7, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="flex items-center gap-1.5 rounded-full border px-3 py-1"
+          style={{ borderColor: elementCfg.glow + '55', backgroundColor: elementCfg.glow + '18' }}
+        >
+          <span className="text-sm">{elementCfg.emoji}</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: elementCfg.glow }}>
+            {elementCfg.label}
+          </span>
+        </motion.div>
       </div>
 
-      {/* Centre: gesture hold indicator */}
+      {/* Pinch label toast */}
+      <AnimatePresence>
+        {pinchLabel && (
+          <motion.div
+            key="pinch-label"
+            initial={{ opacity: 0, y: -10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="pointer-events-none absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-full px-5 py-2 text-sm font-bold uppercase tracking-widest"
+            style={{ background: elementCfg.glow + '33', color: elementCfg.glow, border: `1px solid ${elementCfg.glow}55` }}
+          >
+            {elementCfg.emoji} Beralih ke {elementCfg.label}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Centre: open palm hint */}
       <AnimatePresence mode="wait">
-        {currentGesture && !isBusy && (
+        {isOpenPalm && (
+          <motion.div
+            key="openpalm"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          >
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.3em]"
+              style={{ color: elementCfg.glow + 'aa' }}
+            >
+              {elementCfg.emoji} {elementCfg.label} mengalir...
+            </p>
+          </motion.div>
+        )}
+
+        {/* Hold ring for non-open-palm gestures */}
+        {isHolding && (
           <motion.div
             key={currentGesture}
             initial={{ opacity: 0, scale: 0.6, y: 20 }}
@@ -207,17 +205,16 @@ export default function App() {
               transition={{ duration: 0.7, repeat: Infinity }}
               className="text-8xl drop-shadow-2xl"
             >
-              {ALL_EMOJI[currentGesture]}
+              {GESTURE_EMOJI[currentGesture]}
             </motion.span>
 
-            {/* Hold progress ring — colored by element */}
             <div className="relative h-12 w-12">
               <svg className="absolute inset-0 -rotate-90" viewBox="0 0 40 40">
                 <circle cx="20" cy="20" r="17" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
                 <motion.circle
                   cx="20" cy="20" r="17"
                   fill="none"
-                  stroke={currentElemCfg ? currentElemCfg.glow : 'rgba(167,139,250,0.9)'}
+                  stroke={currentElemCfg.glow}
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeDasharray={`${holdProgress * 106.8} 106.8`}
@@ -231,124 +228,34 @@ export default function App() {
               </div>
             </div>
 
-            {currentElemCfg && (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: currentElemCfg.glow }}>
-                {currentElemCfg.emoji} {currentElemCfg.label}
-              </p>
-            )}
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: elementCfg.glow }}>
+              {elementCfg.emoji} {elementCfg.label}
+            </p>
             <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-white/30">
               Tahan sebentar...
             </p>
           </motion.div>
         )}
-
-        {status === 'thinking' && (
-          <motion.div
-            key="thinking"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-5"
-          >
-            <span className="text-7xl drop-shadow-2xl">{ALL_EMOJI[activeGesture]}</span>
-            <div className="flex items-end gap-1">
-              {[0, 1, 2, 3, 4].map(i => (
-                <motion.div
-                  key={i}
-                  className="w-1 rounded-full"
-                  style={{ backgroundColor: currentElementCfg?.glow ?? 'rgb(167,139,250)' }}
-                  animate={{ height: ['4px', `${12 + i * 4}px`, '4px'] }}
-                  transition={{ duration: 0.6, delay: i * 0.1, repeat: Infinity }}
-                />
-              ))}
-            </div>
-            {currentElementCfg && (
-              <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: currentElementCfg.glow }}>
-                {currentElementCfg.emoji} {currentElementCfg.label}
-              </p>
-            )}
-            <p className="text-[10px] font-medium uppercase tracking-widest text-white/30">AI sedang berpikir...</p>
-          </motion.div>
-        )}
       </AnimatePresence>
 
-      {/* Response card — colored border by element */}
-      <AnimatePresence>
-        {response && (
-          <motion.div
-            initial={{ opacity: 0, y: 40, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-            className="absolute inset-x-4 mx-auto max-w-md"
-            style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
-          >
-            <div
-              className="overflow-hidden rounded-2xl border bg-black/75 shadow-2xl backdrop-blur-xl"
-              style={{
-                borderColor: currentElementCfg ? currentElementCfg.glow + '55' : 'rgba(255,255,255,0.1)',
-                boxShadow: currentElementCfg
-                  ? `0 0 40px ${currentElementCfg.glow}30, 0 25px 50px -12px rgba(0,0,0,0.5)`
-                  : undefined,
-              }}
-            >
-              <div className="flex items-start gap-3 p-5">
-                <span className="shrink-0 text-xl">{ALL_EMOJI[activeGesture]}</span>
-                <div className="flex-1">
-                  {currentElementCfg && (
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest" style={{ color: currentElementCfg.glow }}>
-                      {currentElementCfg.emoji} Elemen {currentElementCfg.label}
-                    </p>
-                  )}
-                  <p className="text-sm leading-relaxed text-white/90">{response}</p>
-                </div>
-              </div>
-
-              {/* Waveform while speaking — colored by element */}
-              {status === 'speaking' && (
-                <div className="flex h-8 items-center gap-px border-t border-white/5 px-4">
-                  {Array.from({ length: 32 }).map((_, i) => (
-                    <motion.div
-                      key={i}
-                      className="flex-1 rounded-full"
-                      style={{ backgroundColor: (currentElementCfg?.glow ?? '#a78bfa') + 'cc' }}
-                      animate={{
-                        height: [
-                          `${2 + Math.random() * 3}px`,
-                          `${6 + Math.random() * 20}px`,
-                          `${2 + Math.random() * 3}px`,
-                        ],
-                      }}
-                      transition={{
-                        duration: 0.25 + Math.random() * 0.35,
-                        repeat: Infinity,
-                        delay: i * 0.025,
-                      }}
-                    />
-                  ))}
-                  <span className="ml-3 shrink-0 text-[9px] font-semibold uppercase tracking-widest text-white/25">
-                    Speaking
-                  </span>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Bottom gesture guide */}
+      {/* Bottom: gesture guide + pinch hint */}
       <div
-        className="absolute inset-x-0 z-10 flex justify-center px-4"
+        className="absolute inset-x-0 z-10 flex flex-col items-center gap-2 px-4"
         style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
       >
+        {/* Pinch hint */}
+        <p className="text-[10px] font-medium uppercase tracking-widest text-white/25">
+          🤏 cubitan untuk ganti elemen
+        </p>
+
+        {/* Gesture bar */}
         <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-4 py-2.5 backdrop-blur-md sm:gap-3 sm:px-6 sm:py-3">
           {GESTURES.map(key => {
-            const elCfg = GESTURE_ELEMENT[key] ? ELEMENT_CONFIG[GESTURE_ELEMENT[key]] : null
-            const isActive = currentGesture === key || activeGesture === key
+            const isActive = currentGesture === key
             return (
               <motion.div
                 key={key}
-                title={`${GESTURE_LABEL[key]}${elCfg ? ` · ${elCfg.label}` : ''}`}
+                title={GESTURE_LABEL[key]}
                 animate={
                   isActive
                     ? { scale: 1.35, opacity: 1, filter: 'grayscale(0)' }
@@ -356,7 +263,7 @@ export default function App() {
                 }
                 transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                 className="cursor-default text-lg sm:text-xl"
-                style={isActive && elCfg ? { filter: `drop-shadow(0 0 6px ${elCfg.glow})` } : undefined}
+                style={isActive ? { filter: `drop-shadow(0 0 6px ${elementCfg.glow})` } : undefined}
               >
                 {GESTURE_EMOJI[key]}
               </motion.div>
